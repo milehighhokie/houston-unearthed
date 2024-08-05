@@ -1,0 +1,106 @@
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
+	"github.com/aws/aws-sdk-go/service/dynamodb/expression"
+)
+
+// PlayerInfo - basic player information
+type PlayerInfo struct {
+	Email      string `json:"Email"`
+	FirstName  string `json:"FirstName"`
+	LastName   string `json:"LastName"`
+	Phone      string `json:"Phone"`
+	PlayerName string `json:"PlayerName"`
+}
+
+// Decision - the choice made and a reason
+type Decision struct {
+	Choice    string `json:"Choice"`
+	Reason    string `json:"Reason"`
+	Task      string `json:"Task"`
+	TimeTaken string `json:"Time taken"`
+}
+
+// Score - should be a slice, but it isn't
+type Score struct {
+	Customer string `json:"Customer Satisfaction"`
+	Profit   string `json:"Profit"`
+	Safety   string `json:"Safety"`
+}
+
+// Result - Collection of decisions - result of a game
+type Result struct {
+	DatePlayed string     `json:"DatePlayed"`
+	Decisions  []Decision `json:"Decisions"`
+	GameName   string     `json:"GameName"`
+	Scores     Score      `json:"Scores"`
+}
+
+// Items - What DynamoDB wants the base record to be called
+type Items struct {
+	PlayerID   string     `json:"PlayerID"`
+	PlayerInfo PlayerInfo `json:"PlayerInfo"`
+	Results    []Result   `json:"Results"`
+}
+
+func main() {
+	// Initialize a session in us-west-2 that the SDK will use to load
+	// credentials from the shared credentials file ~/.aws/credentials.
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String("us-west-2")},
+	)
+
+	if err != nil {
+		fmt.Println("Got error creating session:")
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
+
+	listPlayers(sess)
+}
+
+func listPlayers(sess *session.Session) {
+	// Create DynamoDB client
+	svc := dynamodb.New(sess)
+
+	// Create the Expression to fill the input struct with.
+	filt := expression.Name("PlayerID").Equal(expression.Value("101"))
+
+	proj := expression.NamesList(expression.Name("PlayerID"), expression.Name("PlayerInfo"), expression.Name("Results"))
+
+	expr, _ := expression.NewBuilder().WithFilter(filt).WithProjection(proj).Build()
+
+	// Build the query input parameters
+	params := &dynamodb.ScanInput{
+		ExpressionAttributeNames:  expr.Names(),
+		ExpressionAttributeValues: expr.Values(),
+		FilterExpression:          expr.Filter(),
+		ProjectionExpression:      expr.Projection(),
+		TableName:                 aws.String("Players"),
+	}
+
+	// Make the DynamoDB Query API call
+	result, _ := svc.Scan(params)
+
+	for _, i := range result.Items {
+		player := Items{}
+
+		err := dynamodbattribute.UnmarshalMap(i, &player)
+
+		if err != nil {
+			fmt.Println("Got error unmarshalling:")
+			fmt.Println(err.Error())
+			os.Exit(1)
+		}
+
+		fmt.Println(player)
+
+	}
+}
